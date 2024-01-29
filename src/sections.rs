@@ -3,48 +3,49 @@ use serde::{ Deserialize, Serialize };
 use sqlx::{ Pool, Sqlite, FromRow, query, query_as };
 use chrono::{ DateTime, Utc };
 use http::StatusCode;
+
 pub type SqlitePool = Pool<Sqlite>;
 
 #[derive(Debug, Serialize, FromRow)]
-pub struct Quote {
-    book: String,
-    quote: String,
+pub struct Section {
+    name: String,
+    aname: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
 
-impl Quote {
-    fn new(book: String, quote: String) -> Self {
-        let now = Utc::now();
+impl Section {
+    fn new(name: String, aname: String) -> Self {
         Self {
-            book,
-            quote,
-            created_at: now,
-            updated_at: now,
+            name,
+            aname,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         }
     }
 }
+
 #[derive(Debug, Serialize, FromRow)]
-pub struct ReadQuote {
+pub struct SectionResponse {
     id: i32,
-    book: String,
-    quote: String,
+    name: String,
+    aname: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
 
-impl ReadQuote {
+impl SectionResponse {
     fn new(
         id: i32,
-        book: String,
-        quote: String,
+        name: String,
+        aname: String,
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>
     ) -> Self {
         Self {
             id: id,
-            book: book,
-            quote: quote,
+            name: name,
+            aname: aname,
             created_at: created_at,
             updated_at: updated_at,
         }
@@ -53,27 +54,26 @@ impl ReadQuote {
 
 #[derive(Debug, Deserialize)]
 pub struct Create {
-    book: String,
-    quote: String,
+    name: String,
+    aname: String,
 }
 
 pub async fn create(
     extract::State(pool): extract::State<SqlitePool>,
     axum::Json(payload): axum::Json<Create>
-) -> Result<(StatusCode, axum::Json<Quote>), StatusCode> {
-    let quote = Quote::new(payload.book, payload.quote);
+) -> Result<(StatusCode, axum::Json<Section>), StatusCode> {
+    let section = Section::new(payload.name, payload.aname);
     let res = query(
-        r#"INSERT INTO quotes (book, quote, created_at, updated_at)
-    VALUES ($1, $2, $3, $4)"#
+        r#"INSERT INTO Sections (name,aname,created_at,updated_at) VALUES ($1,$2,$3,$4)"#
     )
-        .bind(&quote.book)
-        .bind(&quote.quote)
-        .bind(&quote.created_at)
-        .bind(&quote.updated_at)
+        .bind(&section.name)
+        .bind(&section.aname)
+        .bind(&section.created_at)
+        .bind(&section.updated_at)
         .execute(&pool).await;
 
     match res {
-        Ok(_) => Ok((StatusCode::OK, axum::Json(quote))),
+        Ok(_) => Ok((StatusCode::OK, axum::Json(section))),
         Err(e) => {
             println!("{:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
@@ -82,12 +82,12 @@ pub async fn create(
 }
 
 pub async fn read(extract::State(pool): extract::State<SqlitePool>) -> Result<
-    axum::Json<Vec<ReadQuote>>,
-    StatusCode
-> {
-    let res = query_as::<_, ReadQuote>(r#"SELECT * FROM quotes"#).fetch_all(&pool).await;
+    axum::Json<Vec<SectionResponse>>,
+    StatusCode> {
+    let res = query_as::<_, SectionResponse>(r#"SELECT * FROM Sections"#).fetch_all(&pool).await;
+
     match res {
-        Ok(quotes) => Ok(axum::Json(quotes)),
+        Ok(sections) => Ok(axum::Json(sections)),
         Err(e) => {
             println!("{:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
@@ -99,12 +99,12 @@ pub async fn update(
     extract::State(pool): extract::State<SqlitePool>,
     extract::Path(id): extract::Path<i32>,
     axum::Json(payload): axum::Json<Create>
-) -> StatusCode {
+) -> Result<(StatusCode, axum::Json<Section>), StatusCode> {
     let now = Utc::now();
-
-    let res = query(r#"UPDATE quotes SET book = $1, quote = $2, updated_at = $3 WHERE id = $4"#)
-        .bind(&payload.book)
-        .bind(&payload.quote)
+    let section = Section::new(payload.name, payload.aname);
+    let res = query(r#"UPDATE Sections SET name=$1,aname=$2,updated_at=$3 WHERE id=$4"#)
+        .bind(&section.name)
+        .bind(&section.aname)
         .bind(now)
         .bind(id)
         .execute(&pool).await
@@ -116,10 +116,10 @@ pub async fn update(
         });
 
     match res {
-        Ok(_) => StatusCode::OK,
+        Ok(_) => Ok((StatusCode::OK, axum::Json(section))),
         Err(e) => {
             println!("{:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -127,8 +127,8 @@ pub async fn update(
 pub async fn delete(
     extract::State(pool): extract::State<SqlitePool>,
     extract::Path(id): extract::Path<i32>
-) -> StatusCode {
-    let res = query(r#"DELETE FROM quotes WHERE id = $1"#)
+) -> Result<StatusCode, StatusCode> {
+    let res = query(r#"DELETE FROM Sections WHERE id=$1"#)
         .bind(id)
         .execute(&pool).await
         .map(|res| {
@@ -139,10 +139,10 @@ pub async fn delete(
         });
 
     match res {
-        Ok(_) => StatusCode::OK,
+        Ok(_) => Ok(StatusCode::OK),
         Err(e) => {
             println!("{:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
